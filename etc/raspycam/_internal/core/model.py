@@ -58,7 +58,7 @@ class CameraCoreModel:
             "motion_logfile": "/tmp/motionLog.txt",  # Log file recording motion events during Monitor mode.
         }
 
-        # Set up internal flags.
+        # Set up internal flags
         self.current_status = (
             None  # Holds the current status string of the camera system
         )
