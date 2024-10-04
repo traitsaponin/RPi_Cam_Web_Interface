@@ -288,7 +288,7 @@ def start_background_process(config_filepath):
 
         time.sleep(0.01)  # Small delay before next iteration
 
-    print("Shutting down gracefully...")
+    print("\033[92mShutting down gracefully\033[0m")
     cam.current_status = "halted"
     cmd_processing_thread.join()  # Wait for command processing thread to finish
     for t in threads:
