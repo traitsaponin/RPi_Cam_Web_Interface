@@ -1,3 +1,4 @@
+import json
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder, JpegEncoder
 from picamera2.outputs import FileOutput
@@ -39,7 +40,7 @@ class CameraCoreModel:
             "lapse_output_path": "/tmp/media/tl_%i_%t_%Y%M%D_%h%m%s.jpg",
             "video_output_path": "/tmp/media/vi_%v_%Y%M%D_%h%m%s.mp4",
             "media_path": "/tmp/media",
-            "status_file": "/tmp/status_cam.txt",
+            "status_file": "/tmp/status_mjpeg.txt",
             "control_file": "/tmp/FIFO",
             "motion_pipe": "/tmp/motionFIFO",
             "video_width": 1920,
@@ -58,7 +59,7 @@ class CameraCoreModel:
             "motion_logfile": "/tmp/motionLog.txt",  # Log file recording motion events during Monitor mode.
         }
 
-        # Set up internal flags
+        # Set up internal flags.
         self.current_status = (
             None  # Holds the current status string of the camera system
         )
@@ -152,6 +153,7 @@ class CameraCoreModel:
         """Restarts the Picamera2 instance."""
         self.picam2.stop()
         self.picam2.start()
+        self.current_status = "ready"
 
     def teardown(self):
         """Stops and closes the camera when shutting down."""
@@ -196,111 +198,16 @@ class CameraCoreModel:
     def read_config_file(self, config_path):
         """Reads the configuration file and loads it into the model."""
         if not config_path:
-            print("No configuration file provided. Using hardcoded defaults.")
             return
-        configs_from_file = {}
-        # Parse each non-comment line in the configuration file
         with open(config_path, "r") as cf_file:
-            for line in cf_file:
-                strippedline = line.strip()
-                if strippedline and strippedline[0] != "#":
-                    setting = strippedline.split()
-                    key, value = setting[0], " ".join(setting[1:])
-                    configs_from_file[key] = value if value else None
-        self.process_configs_from_file(
-            configs_from_file
-        )  # Process the parsed configuration
+            configs_from_file = json.load(cf_file)
+        self.process_configs_from_file(configs_from_file)
 
     def process_configs_from_file(self, parsed_configs):
         """Processes the parsed configurations and applies them to the model.
         Updates model configuration values with values parsed from the config file
         """
-
-        # Parse FIFO pipe file and status file settings.
-        if parsed_configs["status_file"]:
-            self.config["status_file"] = parsed_configs["status_file"]
-        if parsed_configs["control_file"]:
-            self.config["control_file"] = parsed_configs["control_file"]
-        if parsed_configs["motion_pipe"]:
-            self.config["motion_pipe"] = parsed_configs["motion_pipe"]
-        if parsed_configs["fifo_interval"]:
-            CameraCoreModel.fifo_interval = (
-                int(parsed_configs["fifo_interval"]) / 1000000
-            )
-            # CameraCoreModel.fifo_interval = 1  # DEBUG
-
-        # Parse output filepath settings.
-        if parsed_configs["preview_path"]:
-            self.config["preview_path"] = parsed_configs["preview_path"]
-        if parsed_configs["media_path"]:
-            self.config["media_path"] = parsed_configs["media_path"]
-        if parsed_configs["image_path"]:
-            self.config["image_output_path"] = parsed_configs["image_path"]
-        if parsed_configs["lapse_path"]:
-            self.config["lapse_output_path"] = parsed_configs["lapse_path"]
-        if parsed_configs["video_path"]:
-            self.config["video_output_path"] = parsed_configs["video_path"]
-
-        # Parse output resolution/size and bitrate settings.
-        if parsed_configs["width"]:
-            parsed_preview_width = int(parsed_configs["width"])
-            # The height is not actually the same as the width, but is based on the
-            # width. I -think- it follows 16:9 aspect ratio.
-            preview_height = int((parsed_preview_width / 16) * 9)
-            self.config["preview_size"] = (parsed_preview_width, preview_height)
-        if parsed_configs["video_width"]:
-            self.config["video_width"] = int(parsed_configs["video_width"])
-        if parsed_configs["video_height"]:
-            self.config["video_height"] = int(parsed_configs["video_height"])
-        if parsed_configs["video_bitrate"]:
-            self.config["video_bitrate"] = int(parsed_configs["video_bitrate"])
-
-        # Parse motion detection settings.
-        if parsed_configs["motion_external"]:
-            # 0 = Internal, 1 = External (motion app), 2 = Monitor (print to log)
-            # No implementation for External mode yet.
-            code = parsed_configs["motion_external"]
-            mode = "internal"
-            if code == "2":
-                mode = "monitor"
-            self.config["motion_mode"] = mode
-        if parsed_configs["motion_threshold"]:
-            # Need to do some scaling since MSE is not the same as vector count.
-            # RaspiMJPEG's default threshold is >250 vector difference, Picam2's default threshold is >7 MSE.
-            # For now, we just scale linearly such that 1 MSE == 250/7 vectors.
-            threshold = int(parsed_configs["motion_threshold"]) / (250 / 7)
-            print("motion threshold")
-            print(threshold)
-            self.config["motion_threshold"] = threshold
-        if parsed_configs["motion_initframes"]:
-            self.config["motion_initframes"] = int(parsed_configs["motion_initframes"])
-        if parsed_configs["motion_startframes"]:
-            self.config["motion_startframes"] = int(
-                parsed_configs["motion_startframes"]
-            )
-        if parsed_configs["motion_stopframes"]:
-            self.config["motion_stopframes"] = int(parsed_configs["motion_stopframes"])
-
-        # Set autostart and motion auto-start configs. Autostart values can be 'standard' or 'idle'.
-        # We'll map them to True/False here and assume any value apart from 'standard' is False.
-        if parsed_configs["autostart"]:
-            self.config["autostart"] = False
-            if parsed_configs["autostart"] == "standard":
-                self.config["autostart"] = True
-        if parsed_configs["motion_detection"]:
-            self.config["motion_detection"] = parsed_configs["motion_detection"]
-
-        # Set the user configuration file.
-        if parsed_configs["user_config"]:
-            self.config["user_config"] = parsed_configs["user_config"]
-
-        # Parse log file settings.
-        if parsed_configs["log_file"]:
-            self.config["log_file"] = parsed_configs["log_file"]
-        if parsed_configs["log_size"]:
-            self.config["log_size"] = int(parsed_configs["log_size"])
-        if parsed_configs["motion_logfile"]:
-            self.config["motion_logfile"] = parsed_configs["motion_logfile"]
+        self.config.update(parsed_configs)
 
     def capture_request(self):
         """Wrapper for capturing a camera request."""
@@ -313,39 +220,23 @@ class CameraCoreModel:
         from RaspiMJPEG's RaspiMUtils.c updateStatus() function.
         """
         if status:
-            if not self.current_status:
-                self.current_status = status
-                return
-            if status.startswith("Error"):
-                self.current_status = status
-                return
+            self.current_status = status  # Set the status if provided
+            return
 
         if not self.picam2.started:
             self.current_status = "halted"
-        elif self.capturing_still:
-            self.current_status = "image"
         elif self.capturing_video:
             if self.motion_detection:
-                if self.timelapse_on:
-                    self.current_status = "tl_md_video"
-                else:
-                    self.current_status = "md_video"
+                self.current_status = "video_motion"
             else:
-                if self.timelapse_on:
-                    self.current_status = "tl_video"
-                else:
-                    self.current_status = "video"
+                self.current_status = "video"
+        elif self.capturing_still:
+            self.current_status = "image"
         else:
             if self.motion_detection:
-                if self.timelapse_on:
-                    self.current_status = "tl_md_ready"
-                else:
-                    self.current_status = "md_ready"
+                self.current_status = "motion"
             else:
-                if self.timelapse_on:
-                    self.current_status = "timelapse"
-                else:
-                    self.current_status = "ready"
+                self.current_status = "ready"
 
     def make_filename(self, name):
         """Generates a file name based on the given naming scheme."""
@@ -386,32 +277,27 @@ class CameraCoreModel:
         all_files = os.listdir(os.path.dirname(self.config["image_output_path"]))
         all_files.extend(os.listdir(os.path.dirname(self.config["video_output_path"])))
         all_files = set(all_files)
+
         for f in all_files:
             # Strip the extension off.
             filename = os.path.basename(f)
-            file_without_ext = os.path.splitext(filename)[0]
-            # If the extensionless filename now ends with '.th', it is a thumbnail.
-            if file_without_ext.endswith(".th"):
-                # Attempt to strip the type+count portion off.
-                without_th = os.path.splitext(file_without_ext)[0]
-                typecount = os.path.splitext(without_th)
-                filetype = typecount[1][1:2]
-                filecount = typecount[1][2:]
-                # Skip any invalid files.
-                if (not filetype) or (not filecount):
-                    continue
-                elif filetype not in ["i", "t", "v"]:
-                    continue
-                elif not filecount.isdigit():
-                    continue
-                # Update image_count or video_count if file count is bigger.
-                filecount = int(filecount)
-                if filetype == "v":
-                    if filecount > video_count:
-                        video_count = filecount
-                else:
-                    if filecount > image_count:
-                        image_count = filecount
+            file_without_ext, ext = os.path.splitext(filename)
+
+            # Check if it's a thumbnail file
+            if ext == ".th":
+                if "im_" in file_without_ext:
+                    try:
+                        count = int(file_without_ext.split("_")[1])
+                        image_count = max(image_count, count)
+                    except (IndexError, ValueError):
+                        continue
+                elif "vi_" in file_without_ext:
+                    try:
+                        count = int(file_without_ext.split("_")[1])
+                        video_count = max(video_count, count)
+                    except (IndexError, ValueError):
+                        continue
+
         # Set the indexes to one greater than the last existing count.
         # These will be used for the next thumbnails that will be generated.
         self.still_image_index = image_count + 1
@@ -424,18 +310,14 @@ class CameraCoreModel:
         are named slightly differently depending on which type it is.
         As with RaspiMJPEG, just copies the preview JPG file to use as thumbnail.
         """
-        filename = filepath
+        filename, _ = os.path.splitext(filepath)
         count = None
         if (filetype == "i") or (filetype == "t"):
-            # Make thumbnail count for image files.
             count = self.still_image_index
-            # Increment count for next image.
-            self.still_image_index = count + 1
+            self.still_image_index += 1
         elif filetype == "v":
-            # Make thumbnail count for video files.
             count = self.video_file_index
-            # Increment count for next video.
-            self.video_file_index = count + 1
+            self.video_file_index += 1
         # Make actual thumbnail.
         thumbnail_path = filename + "." + filetype + str(count) + ".th.jpg"
         shutil.copyfile(self.config["preview_path"], thumbnail_path)
@@ -444,14 +326,16 @@ class CameraCoreModel:
         """
         Writes message to the specified log file. If log size is 0, does not
         write anything. No current functionality for limiting lines to log_size.
-        RPi Cam Interface uses the same file to write its Sechduler logs to and
+        RPi Cam Interface uses the same file to write its Scheduler logs to and
         differentiates between them by using [] for its own message timestamps while
         RaspiMJPEG uses {} for its message timestamps.
         """
+        if self.config["log_size"] == 0:
+            return
+
         timestring = "{" + datetime.now().strftime("%Y/%m/%d %H:%M:%S") + "} "
         contents = timestring + message + "\n"
         log_fd = os.open(self.config["log_file"], os.O_RDWR | os.O_NONBLOCK, 0o777)
         log_file = os.fdopen(log_fd, "a")
-        if self.config["log_size"] > 0:
-            log_file.write(contents)
+        log_file.write(contents)
         log_file.close()
