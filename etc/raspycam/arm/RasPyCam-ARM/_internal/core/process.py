@@ -229,7 +229,7 @@ def start_background_process(config_filepath):
     Args:
         config_filepath: Path to the configuration file.
     """
-    print("Starting RasPyCam main process...")
+    print("Starting RasPyMJPEG main process...")
     all_cameras = (
         Picamera2.global_camera_info()
     )  # Get information about attached cameras
@@ -288,6 +288,7 @@ def start_background_process(config_filepath):
 
         time.sleep(0.01)  # Small delay before next iteration
 
+    print("Shutting down gracefully :D")
     cam.current_status = "halted"
     cmd_processing_thread.join()  # Wait for command processing thread to finish
     for t in threads:
